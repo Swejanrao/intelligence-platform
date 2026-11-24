@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String              @id @default(cuid())
+  name           String
+  email          String              @unique
+  passwordHash   String
+  role           String              @default("CANDIDATE")
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  createdQuestions Question[]        @relation("QuestionAuthor")
+  createdAssessments Assessment[]    @relation("AssessmentAuthor")
+  attempts       AssessmentAttempt[]
+
+  @@index([role, isActive])
+}
+
+model QuestionCategory {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  description String?
+  questions   Question[]
+  blueprints  AssessmentBlueprint[]
+  createdAt   DateTime     @default(now())
+}
+
+model Question {
+  id             String                    @id @default(cuid())
+  text           String
+  type           String
+  topic          String?
+  skill          String?
+  difficulty     String
+  status         String                    @default("ACTIVE")
+  marks          Float                     @default(1)
+  negativeMarks  Float                     @default(0)
+  explanation    String?
+  categoryId     String
+  createdById    String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  archivedAt     DateTime?
+  category       QuestionCategory          @relation(fields: [categoryId], references: [id])
+  createdBy      User?                     @relation("QuestionAuthor", fields: [createdById], references: [id])
+  options        QuestionOption[]
+  dimensionMappings QuestionDimensionMapping[]
+  attemptQuestions AttemptQuestion[]
+
+  @@index([categoryId, difficulty, status])
+  @@index([type, status])
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean?
+  scoreValue Float?
+  position   Int      @default(0)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId, position])
+}
+
+model Assessment {
+  id                String                 @id @default(cuid())
+  title             String
+  description       String?
+  type              String
+  status            String                 @default("DRAFT")
+  durationMinutes   Int
+  negativeMarking   Boolean                @default(false)
+  shuffleQuestions  Boolean                @default(true)
+  shuffleOptions    Boolean                @default(true)
+  createdById       String
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  createdBy         User                   @relation("AssessmentAuthor", fields: [createdById], references: [id])
+  sections          AssessmentSection[]
+  blueprints        AssessmentBlueprint[]
+  attempts          AssessmentAttempt[]
+
+  @@index([status, type])
+}
+
+model AssessmentSection {
+  id           String                 @id @default(cuid())
+  assessmentId String
+  title        String
+  description  String?
+  position     Int                    @default(0)
+  assessment   Assessment             @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  blueprints   AssessmentBlueprint[]
+  attemptQuestions AttemptQuestion[]
+
+  @@unique([assessmentId, position])
+  @@index([assessmentId])
+}
+
+model AssessmentBlueprint {
+  id            String            @id @default(cuid())
+  assessmentId  String
+  sectionId     String
+  categoryId    String
+  difficulty    String
+  requiredCount Int
+  assessment    Assessment        @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  section       AssessmentSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  category      QuestionCategory  @relation(fields: [categoryId], references: [id])
+
+  @@unique([sectionId, categoryId, difficulty])
+  @@index([assessmentId])
+  @@index([categoryId, difficulty])
+}
+
+model AssessmentAttempt {
+  id            String           @id @default(cuid())
+  assessmentId  String
+  candidateId   String
+  status        String           @default("IN_PROGRESS")
+  startedAt     DateTime         @default(now())
+  expiresAt     DateTime
+  submittedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  assessment    Assessment       @relation(fields: [assessmentId], references: [id])
+  candidate     User              @relation(fields: [candidateId], references: [id])
+  questions     AttemptQuestion[]
+  result        AssessmentResult?
+
+  @@unique([assessmentId, candidateId])
+  @@index([candidateId, status])
+  @@index([assessmentId, status])
+}
+
+model AttemptQuestion {
+  id                String             @id @default(cuid())
+  attemptId         String
+  questionId        String
+  sectionId         String
+  displayOrder      Int
+  questionText      String
+  questionType      String
+  optionsSnapshot   String             @default("[]")
+  marksSnapshot     Float
+  negativeSnapshot Float              @default(0)
+  metadataSnapshot  String             @default("{}")
+  flagged           Boolean            @default(false)
+  attempt           AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question          Question           @relation(fields: [questionId], references: [id])
+  section           AssessmentSection  @relation(fields: [sectionId], references: [id])
+  response          CandidateResponse?
+
+  @@unique([attemptId, questionId])
+  @@unique([attemptId, displayOrder])
+  @@index([attemptId, sectionId])
+}
+
+model CandidateResponse {
+  id                String         @id @default(cuid())
+  attemptQuestionId String         @unique
+  responseJson      String         @default("{}")
+  savedAt           DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  attemptQuestion   AttemptQuestion @relation(fields: [attemptQuestionId], references: [id], onDelete: Cascade)
+}
+
+model ScoringDimension {
+  id          String                     @id @default(cuid())
+  name        String                     @unique
+  description String?
+  mappings    QuestionDimensionMapping[]
+  createdAt   DateTime                   @default(now())
+}
+
+model QuestionDimensionMapping {
+  id            String           @id @default(cuid())
+  questionId    String
+  dimensionId   String
+  weight        Float            @default(1)
+  direction     String           @default("POSITIVE")
+  reverseScored Boolean          @default(false)
+  question      Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  dimension     ScoringDimension @relation(fields: [dimensionId], references: [id])
+
+  @@unique([questionId, dimensionId])
+  @@index([dimensionId])
+}
+
+model AssessmentResult {
+  id                 String            @id @default(cuid())
+  attemptId          String            @unique
+  technicalScore     Float             @default(0)
+  maximumScore       Float             @default(0)
+  percentage         Float             @default(0)
+  sectionScoresJson  String            @default("[]")
+  dimensionScoresJson String           @default("[]")
+  illustrativeNotice String            @default("Illustrative summary. Not a clinical or diagnostic result.")
+  calculatedAt       DateTime          @default(now())
+  attempt            AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([percentage])
+}
